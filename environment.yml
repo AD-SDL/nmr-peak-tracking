@@ -1,0 +1,16 @@
+name: nmrgroup
+channels:
+  - defaults
+  - conda-forge
+dependencies:
+  - python==3.10.*
+  - pandas==1.*
+  - matplotlib>=3
+  - scipy
+  - h5py
+  - tqdm
+  - jupyterlab
+  - pytest
+  - pip:
+    - jupyterlab-spellchecker
+    - trackpy
