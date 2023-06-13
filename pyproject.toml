@@ -1,0 +1,42 @@
+[project]
+name = "nmrtrack"
+version = "0.0.1"
+authors = [
+    { name = "Logan Ward", email = "lward@anl.gov" },
+]
+description = 'Tracking groups of NMR peaks in high-throughput experiments'
+readme = "README.md"
+requires-python = ">=3.10"
+license = { file = "LICENSE" }
+keywords = ["NMR", "Object Tracking"]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Intended Audience :: Science/Research",
+    "License :: OSI Approved :: MIT License",
+    "Natural Language :: English",
+    "Operating System :: OS Independent",
+    "Topic :: System :: Distributed Computing",
+    "Topic :: Scientific/Engineering",
+    "Topic :: Scientific/Engineering :: Artificial Intelligence",
+    "Topic :: Scientific/Engineering :: Chemistry",
+    "Programming Language :: Python :: 3",
+]
+dependencies = [
+    "trackpy",
+    "pandas",
+    "scipy"
+]
+
+[tool.setuptools.packages.find]
+include = ['nmrtrack*']
+
+[project.urls]
+repository = "https://github.com/AD-SDL/nmr-peak-tracking"
+
+[project.optional-dependencies]
+test = [
+    'flake8',
+    'pytest',
+    'pytest-timeout',
+    'pytest-cov',
+]
