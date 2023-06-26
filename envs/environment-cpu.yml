@@ -11,6 +11,10 @@ dependencies:
   - tqdm
   - jupyterlab
   - pytest
+  - pip
   - pip:
+    - --extra-index-url https://download.pytorch.org/whl/cpu  
+    - torch==2.0.*
     - jupyterlab-spellchecker
     - trackpy
+    - -e ..

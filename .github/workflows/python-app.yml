@@ -23,7 +23,7 @@ jobs:
     - name: Set up environment
       uses: conda-incubator/setup-miniconda@v2
       with:
-        environment-file: environment.yml
+        environment-file: envs/environment-cpu.yml
         mamba-version: "*"
     - name: Install test dependencies
       run: |

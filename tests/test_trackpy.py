@@ -35,4 +35,3 @@ def test_history():
     y[:8] = 10000
     poly_2 = f.fit_predictor(x, y)
     assert np.isclose(poly_2.coef, poly.coef).all()
-

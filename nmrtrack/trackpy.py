@@ -85,4 +85,3 @@ class PeakMovementPredict(NullPredict):
                 poly = self.fit_predictor(np.array(frame), np.array(offset))
                 output.append([point.pos[0], poly(t1)])
         return np.array(output)
-
