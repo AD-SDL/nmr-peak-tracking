@@ -33,4 +33,4 @@ jobs:
         pip install flake8
         flake8 nmrtrack tests
     - name: Test with pytest
-      run: pytest --cov=nmrtrack --forked --timeout=300 tests
+      run: pytest --cov=nmrtrack --timeout=300 tests
