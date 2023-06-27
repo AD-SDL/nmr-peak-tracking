@@ -10,21 +10,46 @@ who use entire patterns as the base source.
 """
 from functools import partial
 from dataclasses import dataclass
-from typing import Sequence, Callable, Iterator, NamedTuple
+from typing import Sequence, Callable, Iterator, NamedTuple, Iterable
 
 from scipy.special import binom
 import numpy as np
 
-VectorFunction = Callable[[int | float | np.ndarray], np.ndarray]
-"""Function which accepts a number or vector and returns a vector"""
+
+class PeakFunction(Callable):
+    """Generates peaks and stores the centers and maxima of the constituent peaks"""
+
+    def __init__(self, peaks: list[tuple[float, float, float]]):
+        self._peaks = peaks.copy()
+
+    @property
+    def centers(self):
+        return [x[1] for x in self._peaks]
+
+    @property
+    def areas(self):
+        return [x[0] for x in self._peaks]
+
+    @classmethod
+    def combine(cls, peaks: Iterable['PeakFunction']):
+        all_peaks = sum([p._peaks for p in peaks], [])
+        return cls(all_peaks)
+
+    def __call__(self, offsets: np.ndarray) -> np.ndarray:
+        output = np.zeros_like(offsets, dtype=float)
+        for area, center, width in self._peaks:
+            output += area * lorentz(offsets, center, width)
+        return output
 
 
 class PeakInformation(NamedTuple):
     """The type (e.g., doublet of doublets), center, width, and area of a peak"""
-    peak_type: str
+    peak_type: str | None
     center: float
     width: float
     area: float
+    subpeak_centers: list[float]
+    subpeak_areas: list[float]
 
 
 def lorentz(x: np.ndarray, center: float, width: float) -> np.ndarray:
@@ -33,7 +58,7 @@ def lorentz(x: np.ndarray, center: float, width: float) -> np.ndarray:
 
 
 # TODO (wardlt): Should each split have different widths?
-def generate_peak(center: float, area: float, width: float, multiplicity: Sequence[int] = (), coupling_offsets: Sequence[float] = ()) -> VectorFunction:
+def generate_peak(center: float, area: float, width: float, multiplicity: Sequence[int] = (), coupling_offsets: Sequence[float] = ()) -> PeakFunction:
     """Generate a function with produces a synthetic peak centered at :math:`\\delta=0`
 
     We describe peaks using a Lorentz distribution function.
@@ -49,13 +74,16 @@ def generate_peak(center: float, area: float, width: float, multiplicity: Sequen
         multiplicity: A list of the iterative splits to apply. A doublet of doublets would be (2, 2).
         coupling_offsets: Offsets for between peaks at each level of splitting
     """
+    return PeakFunction(_generate_peaks(center, area, width, multiplicity, coupling_offsets))
 
-    # Output is determined as a sum of laplacian functions
-    functions: list[tuple[float, VectorFunction]] = []
+
+def _generate_peaks(center: float, area: float, width: float, multiplicity: Sequence[int] = (), coupling_offsets: Sequence[float] = ()) \
+        -> list[tuple[float, float, float]]:
+    """Private interface to :meth:`generate_peaks`, generates the peak locations but does not package them"""
 
     # Recurse to make the peak functions
     if len(multiplicity) == 0:
-        functions.append((area, partial(lorentz, center=center, width=width)))
+        return [(area, center, width)]
     else:
         # Determine the contribution of each peak to the total weight
         my_mult = multiplicity[0]
@@ -69,43 +97,10 @@ def generate_peak(center: float, area: float, width: float, multiplicity: Sequen
 
         # Build the underlying peak functions
         if len(multiplicity) == 1:
-            peak_functions = [partial(lorentz, center=center + offset, width=width) for offset in offsets]
+            return [(weight * area, center + offset, width) for weight, offset in zip(weights, offsets)]
         else:
-            # TODO (wardlt): Have the recursion return a list of functions with weights rather than another wrapped function
-            peak_functions = [generate_peak(center + offset, area, width, multiplicity[1:], coupling_offsets[1:]) for offset in offsets]
-
-        # Combine them
-        for w, p in zip(weights, peak_functions):
-            functions.append((w * area, p))
-
-    # The output function is a sum of peaks
-    def _output(x: np.ndarray) -> np.ndarray:
-        output = np.zeros_like(x, dtype=float)
-        for w, f in functions:
-            output += w * f(x)
-        return output
-
-    return _output
-
-
-def combine_peaks(peaks: Sequence[VectorFunction]) -> VectorFunction:
-    """Takes several peaks and combines them together
-
-    Will eventually support leaning due to proximity.
-
-    Args:
-        peaks: List of peaks
-    Returns:
-        Function which produces all peaks
-    """
-
-    def _output(x: np.ndarray) -> np.ndarray:
-        output = np.zeros_like(x, dtype=float)
-        for peak in peaks:
-            output += peak(x)
-        return output
-
-    return _output
+            return sum([_generate_peaks(center + offset, weight * area, width, multiplicity[1:], coupling_offsets[1:])
+                        for weight, offset in zip(weights, offsets)], [])
 
 
 @dataclass()
@@ -158,9 +153,9 @@ class PatternGenerator:
         offsets = self.offsets
         while True:
             peak_info, peak_funcs = self.generate_peak_functions()
-            yield peak_info, combine_peaks(peak_funcs)(offsets)
+            yield peak_info, PeakFunction.combine(peak_funcs)(offsets)
 
-    def generate_peak_functions(self) -> tuple[list[PeakInformation], list[VectorFunction]]:
+    def generate_peak_functions(self) -> tuple[list[PeakInformation], list[PeakFunction]]:
         """Generate a random pattern
 
         Returns:
@@ -172,8 +167,8 @@ class PatternGenerator:
         n_peaks = np.random.choice(len(self.pattern_peak_count_weights), p=self.pattern_peak_count_weights) + 1
 
         # Create them
-        peak_info = []
-        peak_func = []
+        peak_infos = []
+        peak_funcs = []
         for _ in range(n_peaks):
             # Determine the peak types
             depth = np.random.choice(len(self.multiplicity_depth_weights), p=self.multiplicity_depth_weights) + 1
@@ -190,9 +185,8 @@ class PatternGenerator:
             width = np.random.uniform(*self.peak_width_range)
 
             # Make the peak define its information
-            peak_info.append(PeakInformation(''.join(map(str, multiplicity)), center, width, area))
-            peak_func.append(
-                generate_peak(center, area, width, multiplicity, coupling_offsets)
-            )
+            peak_func = generate_peak(center, area, width, multiplicity, coupling_offsets)
+            peak_infos.append(PeakInformation(''.join(map(str, multiplicity)), center, width, area, peak_func.centers, peak_func.areas))
+            peak_funcs.append(peak_func)
 
-        return peak_info, peak_func
+        return peak_infos, peak_funcs

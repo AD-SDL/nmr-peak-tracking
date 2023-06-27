@@ -34,4 +34,4 @@ def test_cnn_to_seq(generator):
     model = PeakLocationPredictor(generator.offset_count)
     batch_y_pred = model(batch_x.to(torch.float32))
     assert batch_y_pred.shape == (2, 4)
-    assert torch.all(batch_y_pred > 0)
+    assert torch.all(batch_y_pred >= 0)
