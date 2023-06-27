@@ -120,11 +120,12 @@ class PatternGenerator:
     """
 
     # Control the generation of peaks
-    multiplicity_depth_weights: Sequence[float] = (0.2, 0.75, 0.05)
+    multiplicity_depth_weights: Sequence[float] = (0.2, 0.7, 0.1)
     """Weights used when selecting the depth of splitting. The first weight is for no splitting, the second for a single split (e.g., a triplet)"""
     multiplicity_weights: Sequence[float] = (0.50, 0.45, 0.05)
     """Weights to use when selecting multiplicity for each split. The first weight is for a doublet, second for a triplet, etc."""
     multiplicity_coupling_offset_range: tuple[float, float] = (0.002, 0.02)
+    """Spacing between peaks within a multiplet"""
 
     # Control the area and width of the peaks
     peak_width_range: tuple[float, float] = (0.0004, 0.001)
@@ -171,7 +172,7 @@ class PatternGenerator:
         peak_funcs = []
         for _ in range(n_peaks):
             # Determine the peak types
-            depth = np.random.choice(len(self.multiplicity_depth_weights), p=self.multiplicity_depth_weights) + 1
+            depth = np.random.choice(len(self.multiplicity_depth_weights), p=self.multiplicity_depth_weights)
             multiplicity = np.random.choice(len(self.multiplicity_weights), size=(depth,), p=self.multiplicity_weights) + 2
 
             # Determine the coupling offsets, sort in descending
@@ -184,9 +185,10 @@ class PatternGenerator:
             area = np.random.uniform(*self.peak_area_range)
             width = np.random.uniform(*self.peak_width_range)
 
-            # Make the peak define its information
+            # Make the peak and define its information
+            name = '1' if len(multiplicity) == 0 else ''.join(map(str, multiplicity))
             peak_func = generate_peak(center, area, width, multiplicity, coupling_offsets)
-            peak_infos.append(PeakInformation(''.join(map(str, multiplicity)), center, width, area, peak_func.centers, peak_func.areas))
+            peak_infos.append(PeakInformation(name, center, width, area, peak_func.centers, peak_func.areas))
             peak_funcs.append(peak_func)
 
         return peak_infos, peak_funcs
