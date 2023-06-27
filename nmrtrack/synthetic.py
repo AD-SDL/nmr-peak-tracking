@@ -8,7 +8,6 @@ which generated individual single peaks,
 and `Sagmeister et al. <https://pubs.rsc.org/en/content/articlehtml/2022/dd/d2dd00006g>`_
 who use entire patterns as the base source.
 """
-from functools import partial
 from dataclasses import dataclass
 from typing import Sequence, Callable, Iterator, NamedTuple, Iterable
 
@@ -16,6 +15,7 @@ from scipy.special import binom
 import numpy as np
 
 
+# TODO (wardlt): Merge this with "PeakInformation"? They have mostly the same information
 class PeakFunction(Callable):
     """Generates peaks and stores the centers and maxima of the constituent peaks"""
 
@@ -148,7 +148,7 @@ class PatternGenerator:
         """Position of the offsets for each point in the generated patterns"""
         return np.linspace(0, self.offset_length, self.offset_count)
 
-    def generate_patterns(self) -> Iterator[tuple[set[PeakInformation], np.ndarray]]:
+    def generate_patterns(self) -> Iterator[tuple[list[PeakInformation], np.ndarray]]:
         """Generate random patterns according to the parameters of this class"""
 
         offsets = self.offsets

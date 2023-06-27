@@ -1,19 +1,13 @@
 """Datasets and models associated with training PyTorch peak detection modules"""
 import numpy as np
 import torch
-from torch.utils import data
 from torch import nn
+from torch.utils.data import IterableDataset
 
-from nmrtrack.synthetic import PatternGenerator
+from nmrtrack.synthetic import PatternGenerator, PeakInformation
 
 
-class PatternDataset(data.IterableDataset):
-    """Produce a stream of NMR patterns and labels of the peak positions as a sequence
-
-    Args:
-        generator: Tool which generates synthetic patterns
-    """
-
+class BaseSyntheticNMRDataset(IterableDataset):
     def __init__(self, generator: PatternGenerator):
         super().__init__()
         self.generator = generator
@@ -21,10 +15,21 @@ class PatternDataset(data.IterableDataset):
 
     def __iter__(self):
         for info, pattern in self.generator.generate_patterns():
-            peak_centers = np.zeros((self.peak_count,), dtype=float)
-            for i, peak in enumerate(info):
-                peak_centers[i] = peak.center
+            peak_centers = self._generate_labels(info)
             yield pattern, peak_centers
+
+    def _generate_labels(self, info):
+        raise NotImplementedError()
+
+
+class PeakPositionDataset(BaseSyntheticNMRDataset):
+    """Produce a stream of NMR patterns and use a sequence of peak positions as labels"""
+
+    def _generate_labels(self, info: list[PeakInformation]):
+        peak_centers = np.zeros((self.peak_count,), dtype=float)
+        for i, peak in enumerate(info):
+            peak_centers[i] = peak.center
+        return peak_centers
 
 
 class PeakLocationPredictor(nn.Module):

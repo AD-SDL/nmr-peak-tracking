@@ -3,7 +3,7 @@ from torch.utils.data import DataLoader
 from pytest import fixture
 
 from nmrtrack.synthetic import PatternGenerator
-from nmrtrack.torch import PatternDataset, PeakLocationPredictor
+from nmrtrack.torch import PeakPositionDataset, PeakLocationPredictor
 
 
 @fixture()
@@ -13,7 +13,7 @@ def generator() -> PatternGenerator:
 
 def test_dataset(generator):
     # Test that the dataset work
-    ds = PatternDataset(generator)
+    ds = PeakPositionDataset(generator)
     pattern, peaks = next(iter(ds))
     assert pattern.shape == (128,)
     assert peaks.shape == (ds.peak_count,)
@@ -27,7 +27,7 @@ def test_dataset(generator):
 
 def test_cnn_to_seq(generator):
     # Get a sample batch of data
-    ds = PatternDataset(generator)
+    ds = PeakPositionDataset(generator)
     loader = DataLoader(ds, batch_size=2)
     batch_x, batch_y = next(iter(loader))
 
