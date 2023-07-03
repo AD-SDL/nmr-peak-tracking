@@ -1,0 +1,19 @@
+name: nmrgroup
+channels:
+  - defaults
+  - conda-forge
+dependencies:
+  - python==3.10.*
+  - pandas==1.*
+  - matplotlib>=3
+  - scipy
+  - h5py
+  - tqdm
+  - jupyterlab
+  - pytest
+  - pip:
+    - --index-url https://download.pytorch.org/whl/cu118
+    - torch==2.0.*
+    - jupyterlab-spellchecker
+    - trackpy
+    - -e ..
