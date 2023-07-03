@@ -4,7 +4,7 @@ from pytest import fixture
 
 from nmrtrack.synthetic import PatternGenerator
 from nmrtrack.torch.data import PeakPositionDataset, PeakClassifierDataset
-from nmrtrack.torch.models import PeakLocationPredictor
+from nmrtrack.torch.models import PeakLocationPredictor, UNetPeakClassifier
 
 
 @fixture()
@@ -33,7 +33,7 @@ def test_dataset(generator):
     assert torch.isclose(repeat_batch_y, batch_y).all()
 
 
-def test_classifier(generator):
+def test_classifier_dataset(generator):
     ds = PeakClassifierDataset(generator, label_types=True)
     assert len(set(ds.peak_types)) == 4 + 9
 
@@ -69,3 +69,22 @@ def test_cnn_to_seq(generator):
     batch_y_pred = model(batch_x.to(torch.float32))
     assert batch_y_pred.shape == (2, 4)
     assert torch.all(batch_y_pred >= 0)
+
+
+def test_classifier(generator):
+    # Create the model and loader
+    model = UNetPeakClassifier()
+    ds = PeakClassifierDataset(generator, label_types=False)
+    loader = DataLoader(ds, batch_size=2)
+
+    print([x[0] for x in model.named_parameters()])
+
+    # Ensure it gives the correct batch sizes
+    batch_x, batch_y = next(iter(loader))
+    pred_y = model(batch_x)
+    assert pred_y.shape == (batch_x.shape[0], 2, batch_x.shape[1])
+
+    # Make sure we can compute losses
+    loss = torch.nn.CrossEntropyLoss()
+    output = loss(pred_y, batch_y)
+    output.backward()  # Ensure we get gradients

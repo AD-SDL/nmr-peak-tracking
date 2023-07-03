@@ -30,7 +30,7 @@ class BaseSyntheticNMRDataset(IterableDataset):
             if self.normalize:
                 pattern -= pattern.min()
                 pattern /= pattern.max()
-            yield pattern, peak_centers
+            yield np.array(pattern, dtype=np.float32), peak_centers
 
     def generate_labels(self, info: list[PeakInformation]):
         raise NotImplementedError()
@@ -77,7 +77,7 @@ class PeakClassifierDataset(BaseSyntheticNMRDataset):
         return self._peak_types
 
     def generate_labels(self, info: list[PeakInformation]):
-        output = np.zeros((self.generator.offset_count,), dtype=np.int8)
+        output = np.zeros((self.generator.offset_count,), dtype=np.int64)
 
         # Get the index corresponding to the center of each peak
         for peak in info:
