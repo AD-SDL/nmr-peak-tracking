@@ -16,6 +16,8 @@ def test_dataset(generator):
     ds = PeakPositionDataset(generator)
     pattern, peaks = next(iter(ds))
     assert pattern.shape == (128,)
+    assert pattern.max() == 1.
+    assert pattern.min() == 0.
     assert peaks.shape == (ds.peak_count,)
 
     # Ensure it can be used in a loader

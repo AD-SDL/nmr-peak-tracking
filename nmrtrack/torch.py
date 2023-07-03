@@ -13,16 +13,21 @@ class BaseSyntheticNMRDataset(IterableDataset):
     """
     Args:
         generator: Tool which generates synthetic patterns
+        normalize: Normalize the pattern such that the maximum value is 1
     """
 
-    def __init__(self, generator: PatternGenerator):
+    def __init__(self, generator: PatternGenerator, normalize: bool = True):
         super().__init__()
         self.generator = generator
         self.peak_count = len(generator.pattern_peak_count_weights)
+        self.normalize = normalize
 
     def __iter__(self):
         for info, pattern in self.generator.generate_patterns():
             peak_centers = self.generate_labels(info)
+            if self.normalize:
+                pattern -= pattern.min()
+                pattern /= pattern.max()
             yield pattern, peak_centers
 
     def generate_labels(self, info: list[PeakInformation]):
@@ -45,10 +50,11 @@ class PeakClassifierDataset(BaseSyntheticNMRDataset):
     Args:
         generator: Tool which generates synthetic patterns
         label_types: Whether to assign a label based on the peak type
+        normalize: Normalize the pattern such that the maximum value is 1
     """
 
-    def __init__(self, generator: PatternGenerator, label_types: bool = False):
-        super().__init__(generator)
+    def __init__(self, generator: PatternGenerator, label_types: bool = False, normalize: bool = True):
+        super().__init__(generator, normalize)
         self.label_types = label_types
 
         # Generate a list of all possible peak types
