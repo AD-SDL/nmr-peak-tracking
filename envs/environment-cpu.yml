@@ -14,6 +14,7 @@ dependencies:
   - pip
   - pip:
     - --extra-index-url https://download.pytorch.org/whl/cpu  
+    - mlflow
     - torch==2.0.*
     - jupyterlab-spellchecker
     - trackpy

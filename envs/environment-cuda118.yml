@@ -14,6 +14,7 @@ dependencies:
   - pip:
     - --index-url https://download.pytorch.org/whl/cu118
     - torch==2.0.*
+    - mlflow
     - jupyterlab-spellchecker
     - trackpy
     - -e ..
