@@ -3,16 +3,17 @@ from torch.utils.data import DataLoader
 from pytest import fixture
 
 from nmrtrack.synthetic import PatternGenerator
-from nmrtrack.torch import PeakPositionDataset, PeakLocationPredictor, PeakClassifierDataset
+from nmrtrack.torch.data import PeakPositionDataset, PeakClassifierDataset
+from nmrtrack.torch.models import PeakLocationPredictor
 
 
 @fixture()
 def generator() -> PatternGenerator:
-    return PatternGenerator(offset_count=128)
+    return PatternGenerator(seed=1, offset_count=128)
 
 
 def test_dataset(generator):
-    # Test that the dataset work
+    # Test that the dataset works
     ds = PeakPositionDataset(generator)
     pattern, peaks = next(iter(ds))
     assert pattern.shape == (128,)
@@ -25,6 +26,11 @@ def test_dataset(generator):
     batch_x, batch_y = next(iter(loader))
     assert batch_x.shape == (2, 128)
     assert batch_y.shape == (2, ds.peak_count)
+
+    # Make sure we repeat the batch through the same order
+    repeat_batch_x, repeat_batch_y = next(iter(loader))
+    assert torch.isclose(repeat_batch_x, batch_x).all()
+    assert torch.isclose(repeat_batch_y, batch_y).all()
 
 
 def test_classifier(generator):
@@ -46,6 +52,11 @@ def test_classifier(generator):
     info.append(info[0])
     labels = ds.generate_labels(info)
     assert sum(labels != 0) == len(info)
+
+    # Make sure it works with the Data Loader
+    loader = DataLoader(ds, batch_size=2)
+    batch_x, batch_y = next(iter(loader))
+    assert batch_x.shape == batch_y.shape
 
 
 def test_cnn_to_seq(generator):

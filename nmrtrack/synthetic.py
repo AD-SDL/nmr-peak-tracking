@@ -119,6 +119,10 @@ class PatternGenerator:
     4. Generate intensity as a function of offset
     """
 
+    # General options
+    seed: int | None = None
+    """Random number seed"""
+
     # Control the generation of peaks
     multiplicity_depth_weights: Sequence[float] = (0.2, 0.7, 0.1)
     """Weights used when selecting the depth of splitting. The first weight is for no splitting, the second for a single split (e.g., a triplet)"""
@@ -152,38 +156,46 @@ class PatternGenerator:
         """Generate random patterns according to the parameters of this class"""
 
         offsets = self.offsets
+        rng = np.random.RandomState(self.seed)
         while True:
-            peak_info, peak_funcs = self.generate_peak_functions()
+            peak_info, peak_funcs = self.generate_peak_functions(rng)
             yield peak_info, PeakFunction.combine(peak_funcs)(offsets)
 
-    def generate_peak_functions(self) -> tuple[list[PeakInformation], list[PeakFunction]]:
+    def generate_peak_functions(self, rng: np.random.RandomState | None = None) -> tuple[list[PeakInformation], list[PeakFunction]]:
         """Generate a random pattern
+
+        Args:
+            rng: Random number generator. Will create a new one if none provided
 
         Returns:
             - Information about the peaks
             - A function which produces each peak
         """
 
+        # Make an RNG if needed
+        if rng is None:
+            rng = np.random.RandomState()
+
         # Determine the number of peaks to create
-        n_peaks = np.random.choice(len(self.pattern_peak_count_weights), p=self.pattern_peak_count_weights) + 1
+        n_peaks = rng.choice(len(self.pattern_peak_count_weights), p=self.pattern_peak_count_weights) + 1
 
         # Create them
         peak_infos = []
         peak_funcs = []
         for _ in range(n_peaks):
             # Determine the peak types
-            depth = np.random.choice(len(self.multiplicity_depth_weights), p=self.multiplicity_depth_weights)
-            multiplicity = np.random.choice(len(self.multiplicity_weights), size=(depth,), p=self.multiplicity_weights) + 2
+            depth = rng.choice(len(self.multiplicity_depth_weights), p=self.multiplicity_depth_weights)
+            multiplicity = rng.choice(len(self.multiplicity_weights), size=(depth,), p=self.multiplicity_weights) + 2
 
             # Determine the coupling offsets, sort in descending
-            coupling_offsets = np.random.uniform(*self.multiplicity_coupling_offset_range, size=(depth,))
+            coupling_offsets = rng.uniform(*self.multiplicity_coupling_offset_range, size=(depth,))
             coupling_offsets.sort()
             coupling_offsets = coupling_offsets[::-1]
 
             # Determine the center, area, and width of the peak
-            center = np.random.uniform(0.02, self.offset_length - 0.02)
-            area = np.random.uniform(*self.peak_area_range)
-            width = np.random.uniform(*self.peak_width_range)
+            center = rng.uniform(0.02, self.offset_length - 0.02)
+            area = rng.uniform(*self.peak_area_range)
+            width = rng.uniform(*self.peak_width_range)
 
             # Make the peak and define its information
             name = '1' if len(multiplicity) == 0 else ''.join(map(str, multiplicity))
