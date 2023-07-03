@@ -46,5 +46,6 @@ def test_generate():
     # Ensure the pattern has the same shape of the offsets
     #  TODO (wardlt): Come up with more tests
     offsets = generator.offsets
-    for _, (info, pattern) in zip(range(32), generator.generate_patterns()):
+    generator.num_to_generate = 32
+    for info, pattern in generator.generate_patterns():
         assert offsets.shape == pattern.shape

@@ -122,6 +122,8 @@ class PatternGenerator:
     # General options
     seed: int | None = None
     """Random number seed"""
+    num_to_generate: int | None = None
+    """If defined, will generate a fixed number of patterns"""
 
     # Control the generation of peaks
     multiplicity_depth_weights: Sequence[float] = (0.2, 0.7, 0.1)
@@ -155,11 +157,16 @@ class PatternGenerator:
     def generate_patterns(self) -> Iterator[tuple[list[PeakInformation], np.ndarray]]:
         """Generate random patterns according to the parameters of this class"""
 
+        # Initialize
         offsets = self.offsets
         rng = np.random.RandomState(self.seed)
+        num_to_generate = self.num_to_generate
+
         while True:
             peak_info, peak_funcs = self.generate_peak_functions(rng)
             yield peak_info, PeakFunction.combine(peak_funcs)(offsets)
+            if num_to_generate is not None and (num_to_generate := num_to_generate - 1) == 0:
+                break
 
     def generate_peak_functions(self, rng: np.random.RandomState | None = None) -> tuple[list[PeakInformation], list[PeakFunction]]:
         """Generate a random pattern
