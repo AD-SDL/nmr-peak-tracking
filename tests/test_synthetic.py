@@ -2,7 +2,7 @@
 from scipy.integrate import quad
 import numpy as np
 
-from nmrtrack.synthetic import generate_peak, PatternGenerator, PeakFunction
+from nmrtrack.synthetic import generate_peak, PatternGenerator, PeakFunction, MultiplePeakFunctions
 
 
 def test_single_peak():
@@ -33,7 +33,7 @@ def test_single_peak():
 def test_combine():
     peak_a = generate_peak(0, area=1, width=0.01)
     peak_b = generate_peak(0.5, area=1, width=0.01)
-    pattern = PeakFunction.combine([peak_a, peak_b])
+    pattern = MultiplePeakFunctions([peak_a, peak_b])
     assert np.isclose(peak_a(0) + peak_b(0), pattern(0))
 
     # Test the integral
