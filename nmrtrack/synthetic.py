@@ -9,7 +9,7 @@ and `Sagmeister et al. <https://pubs.rsc.org/en/content/articlehtml/2022/dd/d2dd
 who use entire patterns as the base source.
 """
 from dataclasses import dataclass
-from typing import Sequence, Callable, Iterator, NamedTuple, Iterable
+from typing import Sequence, Callable, Iterator
 
 from scipy.special import binom
 import numpy as np
@@ -37,6 +37,24 @@ class PeakFunction(Callable):
         for area, center in zip(self.subpeak_areas, self.subpeak_centers):
             output += area * lorentz(offsets, center, self.width)
         return output
+
+    def shift_pattern(self, offset: float, scale: float) -> 'PeakFunction':
+        """Shift the pattern and adjust its intensity
+
+        Args:
+            offset: How much to translate the peaks
+            scale: Multiplicative factor for adjusting the peak height
+        Returns:
+            New peak
+        """
+        return PeakFunction(
+            peak_type=self.peak_type,
+            center=self.center + offset,
+            width=self.width,
+            area=self.area * scale,
+            subpeak_centers=tuple(x + offset for x in self.subpeak_centers),
+            subpeak_areas=tuple(a * scale for a in self.subpeak_areas)
+        )
 
 
 @dataclass(frozen=True)
@@ -198,7 +216,6 @@ class PatternGenerator:
         n_peaks = rng.choice(len(self.pattern_peak_count_weights), p=self.pattern_peak_count_weights) + 1
 
         # Create them
-        peak_infos = []
         peak_funcs = []
         for _ in range(n_peaks):
             # Determine the peak types

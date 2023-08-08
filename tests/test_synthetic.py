@@ -2,7 +2,7 @@
 from scipy.integrate import quad
 import numpy as np
 
-from nmrtrack.synthetic import generate_peak, PatternGenerator, PeakFunction, MultiplePeakFunctions
+from nmrtrack.synthetic import generate_peak, PatternGenerator, MultiplePeakFunctions
 
 
 def test_single_peak():
@@ -49,3 +49,15 @@ def test_generate():
     generator.num_to_generate = 32
     for info, pattern in generator.generate_patterns():
         assert offsets.shape == pattern.shape
+
+
+def test_shift():
+    peak_fn = generate_peak(0, area=1, width=0.01)
+    shifted_fn = peak_fn.shift_pattern(1, 1)
+    assert peak_fn(0) == shifted_fn(1)
+
+    shifted_fn = peak_fn.shift_pattern(0, scale=0.5)
+    assert peak_fn(0) == 2 * shifted_fn(0)
+
+    shifted_fn = peak_fn.shift_pattern(-1, scale=0.5)
+    assert peak_fn(0) == 2 * shifted_fn(-1)
