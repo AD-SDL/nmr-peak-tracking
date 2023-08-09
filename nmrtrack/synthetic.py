@@ -9,8 +9,10 @@ and `Sagmeister et al. <https://pubs.rsc.org/en/content/articlehtml/2022/dd/d2dd
 who use entire patterns as the base source.
 """
 from dataclasses import dataclass
+from functools import cached_property
 from typing import Sequence, Callable, Iterator
 
+from scipy.interpolate import CubicSpline
 from scipy.special import binom
 import numpy as np
 
@@ -237,3 +239,128 @@ class PatternGenerator:
             peak_funcs.append(peak_func)
 
         return peak_funcs
+
+
+@dataclass(frozen=True)
+class MobilePeakFunction:
+    """A peak which moves as a function of time
+
+    Build a moving peak by supplying the peak at t=0, the number of time steps over which it was measured,
+    and the offsets and growth factors at longer times.
+    The class assumes that the offsets and growth factors are measured at equally-space times,
+    and that the rate of change at t=0 is zero.
+
+    """
+
+    peak: PeakFunction
+    """Peak function at t=0"""
+    time_steps: int
+    """Number of times this sequence was measured"""
+
+    offset_knots: Sequence[float]
+    """The offsets at equally-spaced points in time. The first knot is assumed to the offset at t=0"""
+
+    @cached_property
+    def _offset_spline(self) -> CubicSpline:
+        """Tool used to compute the offset over time"""
+        times = np.linspace(0, self.time_steps, len(self.offset_knots) + 1, dtype=float)
+        offsets = [self.peak.center] + list(self.offset_knots)
+        return CubicSpline(times, offsets, bc_type=[(1, 0.0), (2, 0.0)])
+
+    def apply_movement(self, time: float) -> PeakFunction:
+        """Generate a pattern at a certain time interval
+
+        Applies a movement according to the knots in :attr:`offset_knots`"""
+
+        if len(self.offset_knots) == 0:
+            return self.peak
+
+        shift = self._offset_spline(time) - self.peak.center
+        return self.peak.shift_pattern(shift, 1.)
+
+
+@dataclass()
+class TimeSeriesGenerator(PatternGenerator):
+    """Generate NMR spectra which move over time"""
+
+    # Related to how the peaks move
+    movement_probability: float = 0.7
+    """Probability that a peak will move rather than stay stationary"""
+    movement_knot_count_weight: Sequence[float] = (0.3, 0.2, 0.2, 0.1, 0.1, 0.1)
+    """Weight for different numbers of knots in the movement"""
+    movement_maximum_offset: float = 0.1
+    """Maximum amount of a peak is allowed to move"""
+
+    # Related to the output shape
+    time_count: int = 64
+    """Number of points to generate in the time domain"""
+
+    @property
+    def times(self) -> np.ndarray:
+        """Times at which we generate patterns"""
+        return np.arange(self.time_count)
+
+    def generate_patterns(self) -> Iterator[tuple[list[MobilePeakFunction], np.ndarray]]:
+        # Start by creating an RNG and offsets, just like the subclass
+        offsets = self.offsets
+        times = self.times
+        rng = np.random.RandomState(self.seed)
+        num_to_generate = self.num_to_generate
+
+        while True:
+            # Start by generate the mobile peaks
+            peak_funcs = self.generate_mobile_peaks(rng)
+
+            # Fill in the peaks at each time
+            output = np.zeros((self.time_count, self.offset_count), dtype=float)
+            for i, time in enumerate(times):
+                adjusted_peaks = [peak.apply_movement(time) for peak in peak_funcs]
+                combined_peaks = MultiplePeakFunctions(peaks=adjusted_peaks)
+                output[i, :] = combined_peaks(offsets)
+
+            yield peak_funcs, output
+
+            # Break if desired
+            if num_to_generate is not None and (num_to_generate := num_to_generate - 1) == 0:
+                break
+
+    def generate_mobile_peaks(self, rng: np.random.RandomState | None = None) -> list[MobilePeakFunction]:
+        """Generate a series of time-varying peaks
+
+        Args:
+            rng: Random number generator. Will create a new one if none provided
+        Returns:
+            Time-varying versions of these peak functions
+        """
+
+        # Make an RNG if needed
+        if rng is None:
+            rng = np.random.RandomState()
+
+        # Get a starting set of peaks
+        peaks = self.generate_peak_functions(rng)
+
+        # Determine the movement for each peak
+        #  TODO (wardlt): Give some peaks the same movement/growth
+        output = []
+        for peak in peaks:
+            # Decide if we will move
+            if rng.random() < self.movement_probability:
+                # Pick the number of offset points
+                n_points = rng.choice(len(self.movement_knot_count_weight), p=self.movement_knot_count_weight) + 1
+
+                # Start by defining the offset at the end of the period
+                # Peaks are allowed to the maximum offset to within 0.1 of the edge of the pattern
+                ffset_rangeo = [
+                    max(0.1, peak.center - self.movement_maximum_offset),
+                    min(peak.center + self.movement_maximum_offset, self.offset_length - 0.1)
+                ]
+                offsets = rng.uniform(*ffset_rangeo, size=(n_points,))
+
+                # Make a mobile peak
+                output.append(MobilePeakFunction(offset_knots=offsets, peak=peak, time_steps=self.time_count))
+
+            else:
+                # Make a static peak
+                output.append(MobilePeakFunction(offset_knots=(), peak=peak, time_steps=self.time_count))
+        return output
