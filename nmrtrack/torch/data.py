@@ -5,7 +5,7 @@ import logging
 import numpy as np
 from torch.utils.data import IterableDataset
 
-from nmrtrack.synthetic import PatternGenerator, PeakInformation
+from nmrtrack.synthetic import PatternGenerator, PeakFunction
 
 logger = logging.getLogger(__name__)
 
@@ -32,14 +32,14 @@ class BaseSyntheticNMRDataset(IterableDataset):
                 pattern /= pattern.max()
             yield np.array(pattern, dtype=np.float32), peak_centers
 
-    def generate_labels(self, info: list[PeakInformation]):
+    def generate_labels(self, info: list[PeakFunction]):
         raise NotImplementedError()
 
 
 class PeakPositionDataset(BaseSyntheticNMRDataset):
     """Produce a stream of NMR patterns and use a sequence of peak positions as labels"""
 
-    def generate_labels(self, info: list[PeakInformation]):
+    def generate_labels(self, info: list[PeakFunction]):
         peak_centers = np.zeros((self.peak_count,), dtype=float)
         for i, peak in enumerate(info):
             peak_centers[i] = peak.center
@@ -76,7 +76,7 @@ class PeakClassifierDataset(BaseSyntheticNMRDataset):
         """Types of peaks included in the dataset"""
         return self._peak_types
 
-    def generate_labels(self, info: list[PeakInformation]):
+    def generate_labels(self, info: list[PeakFunction]):
         output = np.zeros((self.generator.offset_count,), dtype=np.int64)
 
         # Get the index corresponding to the center of each peak

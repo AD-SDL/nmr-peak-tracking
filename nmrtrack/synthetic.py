@@ -9,47 +9,66 @@ and `Sagmeister et al. <https://pubs.rsc.org/en/content/articlehtml/2022/dd/d2dd
 who use entire patterns as the base source.
 """
 from dataclasses import dataclass
-from typing import Sequence, Callable, Iterator, NamedTuple, Iterable
+from functools import cached_property
+from typing import Sequence, Callable, Iterator
 
+from scipy.interpolate import CubicSpline
 from scipy.special import binom
 import numpy as np
 
 
-# TODO (wardlt): Merge this with "PeakInformation"? They have mostly the same information
+@dataclass(frozen=True)
 class PeakFunction(Callable):
     """Generates peaks and stores the centers and maxima of the constituent peaks"""
 
-    def __init__(self, peaks: list[tuple[float, float, float]]):
-        self._peaks = peaks.copy()
-
-    @property
-    def centers(self):
-        return [x[1] for x in self._peaks]
-
-    @property
-    def areas(self):
-        return [x[0] for x in self._peaks]
-
-    @classmethod
-    def combine(cls, peaks: Iterable['PeakFunction']):
-        all_peaks = sum([p._peaks for p in peaks], [])
-        return cls(all_peaks)
+    peak_type: str | None
+    """Type of the peak"""
+    center: float
+    """Location of the center of the collection of peaks peaks"""
+    width: float
+    """Width of all peaks"""
+    area: float
+    """Total area of the peaks"""
+    subpeak_centers: tuple[float]
+    """Center of each subpeak"""
+    subpeak_areas: tuple[float]
+    """Area of the subpeaks"""
 
     def __call__(self, offsets: np.ndarray) -> np.ndarray:
         output = np.zeros_like(offsets, dtype=float)
-        for area, center, width in self._peaks:
-            output += area * lorentz(offsets, center, width)
+        for area, center in zip(self.subpeak_areas, self.subpeak_centers):
+            output += area * lorentz(offsets, center, self.width)
         return output
 
+    def alter_pattern(self, offset: float, scale: float) -> 'PeakFunction':
+        """Shift the pattern and adjust its intensity
 
-class PeakInformation(NamedTuple):
-    """The type (e.g., doublet of doublets), center, width, and area of a peak"""
-    peak_type: str | None
-    center: float
-    width: float
-    area: float
-    subpeak_centers: list[float]
-    subpeak_areas: list[float]
+        Args:
+            offset: How much to translate the peaks
+            scale: Multiplicative factor for adjusting the peak height
+        Returns:
+            New peak
+        """
+        return PeakFunction(
+            peak_type=self.peak_type,
+            center=self.center + offset,
+            width=self.width,
+            area=self.area * scale,
+            subpeak_centers=tuple(x + offset for x in self.subpeak_centers),
+            subpeak_areas=tuple(a * scale for a in self.subpeak_areas)
+        )
+
+
+@dataclass(frozen=True)
+class MultiplePeakFunctions(Callable):
+    peaks: Sequence[PeakFunction] = ...
+
+    def __call__(self, offsets: np.ndarray) -> np.ndarray:
+        output = np.zeros_like(offsets, dtype=float)
+        for peak in self.peaks:
+            for area, center in zip(peak.subpeak_areas, peak.subpeak_centers):
+                output += area * lorentz(offsets, center, peak.width)
+        return output
 
 
 def lorentz(x: np.ndarray, center: float, width: float) -> np.ndarray:
@@ -57,7 +76,6 @@ def lorentz(x: np.ndarray, center: float, width: float) -> np.ndarray:
     return 1.0 / (np.pi * width * (1.0 + x_prime * x_prime))
 
 
-# TODO (wardlt): Should each split have different widths?
 def generate_peak(center: float, area: float, width: float, multiplicity: Sequence[int] = (), coupling_offsets: Sequence[float] = ()) -> PeakFunction:
     """Generate a function with produces a synthetic peak centered at :math:`\\delta=0`
 
@@ -74,7 +92,21 @@ def generate_peak(center: float, area: float, width: float, multiplicity: Sequen
         multiplicity: A list of the iterative splits to apply. A doublet of doublets would be (2, 2).
         coupling_offsets: Offsets for between peaks at each level of splitting
     """
-    return PeakFunction(_generate_peaks(center, area, width, multiplicity, coupling_offsets))
+
+    # Compute the locations of the peaks
+    subpeak_area, subpeak_center, subpeak_width = zip(*_generate_peaks(center, area, width, multiplicity, coupling_offsets))
+    assert np.isclose(subpeak_width[0], subpeak_width).all(), 'All peak widths should be the same'
+
+    # Make the peak function class
+    name = '1' if len(multiplicity) == 0 else ''.join(map(str, multiplicity))
+    return PeakFunction(
+        peak_type=name,
+        center=center,
+        area=area,
+        width=width,
+        subpeak_centers=subpeak_center,
+        subpeak_areas=subpeak_area
+    )
 
 
 def _generate_peaks(center: float, area: float, width: float, multiplicity: Sequence[int] = (), coupling_offsets: Sequence[float] = ()) \
@@ -154,7 +186,7 @@ class PatternGenerator:
         """Position of the offsets for each point in the generated patterns"""
         return np.linspace(0, self.offset_length, self.offset_count)
 
-    def generate_patterns(self) -> Iterator[tuple[list[PeakInformation], np.ndarray]]:
+    def generate_patterns(self) -> Iterator[tuple[list[PeakFunction], np.ndarray]]:
         """Generate random patterns according to the parameters of this class"""
 
         # Initialize
@@ -163,20 +195,19 @@ class PatternGenerator:
         num_to_generate = self.num_to_generate
 
         while True:
-            peak_info, peak_funcs = self.generate_peak_functions(rng)
-            yield peak_info, PeakFunction.combine(peak_funcs)(offsets)
+            peak_funcs = self.generate_peak_functions(rng)
+            yield peak_funcs, MultiplePeakFunctions(peak_funcs)(offsets)
             if num_to_generate is not None and (num_to_generate := num_to_generate - 1) == 0:
                 break
 
-    def generate_peak_functions(self, rng: np.random.RandomState | None = None) -> tuple[list[PeakInformation], list[PeakFunction]]:
+    def generate_peak_functions(self, rng: np.random.RandomState | None = None) -> list[PeakFunction]:
         """Generate a random pattern
 
         Args:
             rng: Random number generator. Will create a new one if none provided
 
         Returns:
-            - Information about the peaks
-            - A function which produces each peak
+            A list of functions which produce each peak
         """
 
         # Make an RNG if needed
@@ -187,7 +218,6 @@ class PatternGenerator:
         n_peaks = rng.choice(len(self.pattern_peak_count_weights), p=self.pattern_peak_count_weights) + 1
 
         # Create them
-        peak_infos = []
         peak_funcs = []
         for _ in range(n_peaks):
             # Determine the peak types
@@ -205,9 +235,159 @@ class PatternGenerator:
             width = rng.uniform(*self.peak_width_range)
 
             # Make the peak and define its information
-            name = '1' if len(multiplicity) == 0 else ''.join(map(str, multiplicity))
             peak_func = generate_peak(center, area, width, multiplicity, coupling_offsets)
-            peak_infos.append(PeakInformation(name, center, width, area, peak_func.centers, peak_func.areas))
             peak_funcs.append(peak_func)
 
-        return peak_infos, peak_funcs
+        return peak_funcs
+
+
+@dataclass(frozen=True)
+class MobilePeakFunction:
+    """A peak which moves and changes in intensity as a function of time
+
+    Build a moving peak by supplying the peak at t=start, the number of time steps over which it was measured,
+    and the offsets and growth factors at longer times.
+    The class assumes that the offsets and growth factors are measured at equally-space times,
+    and that the rate of change at t=start is zero.
+
+    Peak growth is exponential.
+    """
+
+    peak: PeakFunction
+    """Peak function at t=start"""
+    time_steps: int
+    """Number of times this sequence was measured"""
+
+    offset_knots: Sequence[float]
+    """The offsets at equally-spaced points in time. The first knot is assumed to the offset at t=start and the last at t=end"""
+    growth_factor: float | None = None
+    """Factor by which the peak grows between t=start and t=end"""
+
+    @cached_property
+    def _offset_spline(self) -> CubicSpline:
+        """Tool used to compute the offset over time"""
+        times = np.linspace(0, self.time_steps, len(self.offset_knots) + 1, dtype=float)
+        offsets = [self.peak.center] + list(self.offset_knots)
+        return CubicSpline(times, offsets, bc_type=[(1, 0.0), (2, 0.0)])
+
+    def apply_movement(self, time: float) -> PeakFunction:
+        """Generate a pattern at a certain time interval
+
+        Applies a movement according to the knots in :attr:`offset_knots`"""
+
+        # If no changes, just return the underlying peak
+        if len(self.offset_knots) == 0 and self.growth_factor is None:
+            return self.peak
+
+        # If not, determine how much to change the peak
+        shift = self._offset_spline(time) - self.peak.center if len(self.offset_knots) > 0 else 0
+        scale = (1. if self.growth_factor is None else self.growth_factor) ** (time / self.time_steps)
+        return self.peak.alter_pattern(shift, scale)
+
+
+@dataclass()
+class TimeSeriesGenerator(PatternGenerator):
+    """Generate NMR spectra which move over time.
+
+    The generated patterns are observed NMR intensity as a function of offset
+    for frames supposed to be taken at exponentially-increasing time intervals.
+
+    Peaks move along a path governed by a spline.
+    The positions of the spline knots are defined such that the peak's center will not
+    move more than a certain amount.
+    The number of knots is also chosen randomly.
+
+    Peak growth follows an exponential growth model and the total fraction
+    of growth is drawn from a random distribution.
+    """
+
+    # Related to how the peaks move
+    movement_probability: float = 0.7
+    """Probability that a peak will move rather than stay stationary"""
+    movement_knot_count_weight: Sequence[float] = (0.4, 0.4, 0.2)
+    """Weight for different numbers of knots in the movement"""
+    movement_maximum_offset: float = 0.1
+    """Maximum amount of a peak is allowed to move"""
+
+    # Related to how the peaks grow
+    growth_probability: float = 0.7
+    """Probability that the peak intensity will change over time"""
+    growth_rate_distribution: tuple[float, float] = (-4., 4.)
+    """Range of a uniform distribution describing growth.
+    The growth parameter is :math:`log(I(t=start)) - log(I(t=end))`"""
+
+    # Related to the output shape
+    time_count: int = 64
+    """Number of points to generate in the time domain"""
+
+    @property
+    def times(self) -> np.ndarray:
+        """Times at which we generate patterns"""
+        return np.arange(self.time_count)
+
+    def generate_patterns(self) -> Iterator[tuple[list[MobilePeakFunction], np.ndarray]]:
+        # Start by creating an RNG and offsets, just like the subclass
+        offsets = self.offsets
+        times = self.times
+        rng = np.random.RandomState(self.seed)
+        num_to_generate = self.num_to_generate
+
+        while True:
+            # Start by generate the mobile peaks
+            peak_funcs = self.generate_mobile_peaks(rng)
+
+            # Fill in the peaks at each time
+            output = np.zeros((self.time_count, self.offset_count), dtype=float)
+            for i, time in enumerate(times):
+                adjusted_peaks = [peak.apply_movement(time) for peak in peak_funcs]
+                combined_peaks = MultiplePeakFunctions(peaks=adjusted_peaks)
+                output[i, :] = combined_peaks(offsets)
+
+            yield peak_funcs, output
+
+            # Break if desired
+            if num_to_generate is not None and (num_to_generate := num_to_generate - 1) == 0:
+                break
+
+    def generate_mobile_peaks(self, rng: np.random.RandomState | None = None) -> list[MobilePeakFunction]:
+        """Generate a series of time-varying peaks
+
+        Args:
+            rng: Random number generator. Will create a new one if none provided
+        Returns:
+            Time-varying versions of these peak functions
+        """
+
+        # Make an RNG if needed
+        if rng is None:
+            rng = np.random.RandomState()
+
+        # Get a starting set of peaks
+        peaks = self.generate_peak_functions(rng)
+
+        # Determine the movement for each peak
+        #  TODO (wardlt): Give some peaks the same movement/growth
+        output = []
+        for peak in peaks:
+            # Decide if we will move
+            offsets = ()
+            if rng.random() < self.movement_probability:
+                # Pick the number of offset points
+                n_points = rng.choice(len(self.movement_knot_count_weight), p=self.movement_knot_count_weight) + 1
+
+                # Start by defining the offset at the end of the period
+                # Peaks are allowed to the maximum offset to within 0.1 of the edge of the pattern
+                offset_range = [
+                    max(0.1, peak.center - self.movement_maximum_offset),
+                    min(peak.center + self.movement_maximum_offset, self.offset_length - 0.1)
+                ]
+                offsets = rng.uniform(*offset_range, size=(n_points,))
+
+            # Decide if we will grow
+            growth_factor = None
+            if rng.random() < self.growth_probability:
+                growth_factor = np.exp(rng.uniform(*self.growth_rate_distribution))
+
+            # Make the peak
+            output.append(MobilePeakFunction(offset_knots=offsets, peak=peak, time_steps=self.time_count, growth_factor=growth_factor))
+        return output

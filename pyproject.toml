@@ -22,7 +22,7 @@ classifiers = [
     "Programming Language :: Python :: 3",
 ]
 dependencies = [
-    "pytorch==2.*",
+    "torch==2.*",
     "trackpy",
     "pandas",
     "scipy"
