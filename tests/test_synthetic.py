@@ -53,22 +53,39 @@ def test_generate_static():
 
 def test_shift():
     peak_fn = generate_peak(0, area=1, width=0.01)
-    shifted_fn = peak_fn.shift_pattern(1, 1)
+    shifted_fn = peak_fn.alter_pattern(1, 1)
     assert peak_fn(0) == shifted_fn(1)
 
-    shifted_fn = peak_fn.shift_pattern(0, scale=0.5)
+    shifted_fn = peak_fn.alter_pattern(0, scale=0.5)
     assert peak_fn(0) == 2 * shifted_fn(0)
 
-    shifted_fn = peak_fn.shift_pattern(-1, scale=0.5)
+    shifted_fn = peak_fn.alter_pattern(-1, scale=0.5)
     assert peak_fn(0) == 2 * shifted_fn(-1)
 
 
 def test_mobile_peak():
+    # Only movement
     peak_fun = generate_peak(0, area=1, width=0.01)
     mobile_peak_fun = MobilePeakFunction(peak=peak_fun, time_steps=64, offset_knots=[0.7, 1.])
     shifted_peak = mobile_peak_fun.apply_movement(32)
     assert shifted_peak.center == 0.7
     assert shifted_peak.area == peak_fun.area
+
+    # Movement and growth
+    mobile_peak_fun = MobilePeakFunction(peak=peak_fun, time_steps=64, offset_knots=[0.7, 1.], growth_factor=1.)
+    shifted_peak = mobile_peak_fun.apply_movement(32)
+    assert shifted_peak.center == 0.7
+    assert shifted_peak.area == peak_fun.area
+
+    mobile_peak_fun = MobilePeakFunction(peak=peak_fun, time_steps=64, offset_knots=[0.7, 1.], growth_factor=2.)
+    shifted_peak = mobile_peak_fun.apply_movement(32)
+    assert shifted_peak.center == 0.7
+    assert np.isclose(shifted_peak.area, np.sqrt(2) * peak_fun.area)
+
+    mobile_peak_fun = MobilePeakFunction(peak=peak_fun, time_steps=64, offset_knots=[0.7, 1.], growth_factor=0.5)
+    shifted_peak = mobile_peak_fun.apply_movement(32)
+    assert shifted_peak.center == 0.7
+    assert np.isclose(shifted_peak.area, peak_fun.area / np.sqrt(2))
 
 
 def test_generate_time_varying():

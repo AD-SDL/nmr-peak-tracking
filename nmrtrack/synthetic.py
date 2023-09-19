@@ -40,7 +40,7 @@ class PeakFunction(Callable):
             output += area * lorentz(offsets, center, self.width)
         return output
 
-    def shift_pattern(self, offset: float, scale: float) -> 'PeakFunction':
+    def alter_pattern(self, offset: float, scale: float) -> 'PeakFunction':
         """Shift the pattern and adjust its intensity
 
         Args:
@@ -243,22 +243,25 @@ class PatternGenerator:
 
 @dataclass(frozen=True)
 class MobilePeakFunction:
-    """A peak which moves as a function of time
+    """A peak which moves and changes in intensity as a function of time
 
-    Build a moving peak by supplying the peak at t=0, the number of time steps over which it was measured,
+    Build a moving peak by supplying the peak at t=start, the number of time steps over which it was measured,
     and the offsets and growth factors at longer times.
     The class assumes that the offsets and growth factors are measured at equally-space times,
-    and that the rate of change at t=0 is zero.
+    and that the rate of change at t=start is zero.
 
+    Peak growth is exponential.
     """
 
     peak: PeakFunction
-    """Peak function at t=0"""
+    """Peak function at t=start"""
     time_steps: int
     """Number of times this sequence was measured"""
 
     offset_knots: Sequence[float]
-    """The offsets at equally-spaced points in time. The first knot is assumed to the offset at t=0"""
+    """The offsets at equally-spaced points in time. The first knot is assumed to the offset at t=start and the last at t=end"""
+    growth_factor: float | None = None
+    """Factor by which the peak grows between t=start and t=end"""
 
     @cached_property
     def _offset_spline(self) -> CubicSpline:
@@ -272,24 +275,46 @@ class MobilePeakFunction:
 
         Applies a movement according to the knots in :attr:`offset_knots`"""
 
-        if len(self.offset_knots) == 0:
+        # If no changes, just return the underlying peak
+        if len(self.offset_knots) == 0 and self.growth_factor is None:
             return self.peak
 
-        shift = self._offset_spline(time) - self.peak.center
-        return self.peak.shift_pattern(shift, 1.)
+        # If not, determine how much to change the peak
+        shift = self._offset_spline(time) - self.peak.center if len(self.offset_knots) > 0 else 0
+        scale = (1. if self.growth_factor is None else self.growth_factor) ** (time / self.time_steps)
+        return self.peak.alter_pattern(shift, scale)
 
 
 @dataclass()
 class TimeSeriesGenerator(PatternGenerator):
-    """Generate NMR spectra which move over time"""
+    """Generate NMR spectra which move over time.
+
+    The generated patterns are observed NMR intensity as a function of offset
+    for frames supposed to be taken at exponentially-increasing time intervals.
+
+    Peaks move along a path governed by a spline.
+    The positions of the spline knots are defined such that the peak's center will not
+    move more than a certain amount.
+    The number of knots is also chosen randomly.
+
+    Peak growth follows an exponential growth model and the total fraction
+    of growth is drawn from a random distribution.
+    """
 
     # Related to how the peaks move
     movement_probability: float = 0.7
     """Probability that a peak will move rather than stay stationary"""
-    movement_knot_count_weight: Sequence[float] = (0.3, 0.2, 0.2, 0.1, 0.1, 0.1)
+    movement_knot_count_weight: Sequence[float] = (0.4, 0.4, 0.2)
     """Weight for different numbers of knots in the movement"""
     movement_maximum_offset: float = 0.1
     """Maximum amount of a peak is allowed to move"""
+
+    # Related to how the peaks grow
+    growth_probability: float = 0.7
+    """Probability that the peak intensity will change over time"""
+    growth_rate_distribution: tuple[float, float] = (-4., 4.)
+    """Range of a uniform distribution describing growth.
+    The growth parameter is :math:`log(I(t=start)) - log(I(t=end))`"""
 
     # Related to the output shape
     time_count: int = 64
@@ -345,22 +370,24 @@ class TimeSeriesGenerator(PatternGenerator):
         output = []
         for peak in peaks:
             # Decide if we will move
+            offsets = ()
             if rng.random() < self.movement_probability:
                 # Pick the number of offset points
                 n_points = rng.choice(len(self.movement_knot_count_weight), p=self.movement_knot_count_weight) + 1
 
                 # Start by defining the offset at the end of the period
                 # Peaks are allowed to the maximum offset to within 0.1 of the edge of the pattern
-                ffset_rangeo = [
+                offset_range = [
                     max(0.1, peak.center - self.movement_maximum_offset),
                     min(peak.center + self.movement_maximum_offset, self.offset_length - 0.1)
                 ]
-                offsets = rng.uniform(*ffset_rangeo, size=(n_points,))
+                offsets = rng.uniform(*offset_range, size=(n_points,))
 
-                # Make a mobile peak
-                output.append(MobilePeakFunction(offset_knots=offsets, peak=peak, time_steps=self.time_count))
+            # Decide if we will grow
+            growth_factor = None
+            if rng.random() < self.growth_probability:
+                growth_factor = np.exp(rng.uniform(*self.growth_rate_distribution))
 
-            else:
-                # Make a static peak
-                output.append(MobilePeakFunction(offset_knots=(), peak=peak, time_steps=self.time_count))
+            # Make the peak
+            output.append(MobilePeakFunction(offset_knots=offsets, peak=peak, time_steps=self.time_count, growth_factor=growth_factor))
         return output
