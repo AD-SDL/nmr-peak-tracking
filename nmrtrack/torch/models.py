@@ -40,7 +40,7 @@ class PeakLocationPredictor(nn.Module):
 
 
 class UNetPeakClassifier(nn.Module):
-    """A network which maps a single spectrum to a classification of which pixels are at the center of a peak
+    """A network which maps an NMR spectrum to a classification of which pixels are at the center of a peak
 
     The network is `a UNet architecture <https://en.wikipedia.org/wiki/U-Net>`_ that uses zero padding to avoid the need for windowing.
 
@@ -54,9 +54,6 @@ class UNetPeakClassifier(nn.Module):
     def __init__(self, depth: int = 3, first_features: int = 32, downscale_kernel: int = 3, output_classes: int = 2):
         super().__init__()
 
-        # Determine padding needed to preserve size
-        padding = (downscale_kernel - 1) // 2
-
         # Build the downscaling layers
         input_features = 1
         output_features = first_features
@@ -64,9 +61,9 @@ class UNetPeakClassifier(nn.Module):
         for _ in range(depth):
             # Run a convolution twice
             self.downscale_convs.append(nn.Sequential(
-                nn.Conv1d(input_features, output_features, downscale_kernel, padding=padding),
+                nn.Conv1d(input_features, output_features, downscale_kernel, padding='same'),
                 nn.ReLU(),
-                nn.Conv1d(output_features, output_features, downscale_kernel, padding=padding),
+                nn.Conv1d(output_features, output_features, downscale_kernel, padding='same'),
                 nn.ReLU(),
             ))
 
@@ -84,9 +81,9 @@ class UNetPeakClassifier(nn.Module):
                 nn.ConvTranspose1d(input_features, input_features // 2, 2, stride=2)
             )
             self.upscale_convs.append(nn.Sequential(
-                nn.Conv1d(input_features, output_features, downscale_kernel, padding=padding),
+                nn.Conv1d(input_features, output_features, downscale_kernel, padding='same'),
                 nn.ReLU(),
-                nn.Conv1d(output_features, output_features, downscale_kernel, padding=padding),
+                nn.Conv1d(output_features, output_features, downscale_kernel, padding='same'),
                 nn.ReLU(),
             ))
 
@@ -95,7 +92,7 @@ class UNetPeakClassifier(nn.Module):
             output_features = output_features // 2
 
         # The output convolution
-        self.output_conv = nn.Conv1d(input_features, output_classes, downscale_kernel, padding=padding)
+        self.output_conv = nn.Conv1d(input_features, output_classes, downscale_kernel, padding='same')
 
     def forward(self, inputs):
 

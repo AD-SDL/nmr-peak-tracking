@@ -1,6 +1,6 @@
 import torch
 from torch.utils.data import DataLoader
-from pytest import fixture
+from pytest import fixture, mark
 
 from nmrtrack.synthetic import PatternGenerator, TimeSeriesGenerator
 from nmrtrack.torch.data import PeakPositionDataset, PeakClassifierDataset
@@ -76,18 +76,18 @@ def test_cnn_to_seq(generator):
     assert torch.all(batch_y_pred >= 0)
 
 
-def test_classifier(generator):
+@mark.parametrize('label_types', [True, False])
+def test_classifier(generator, label_types):
     # Create the model and loader
-    model = UNetPeakClassifier()
-    ds = PeakClassifierDataset(generator, label_types=False)
+    ds = PeakClassifierDataset(generator, label_types=label_types)
     loader = DataLoader(ds, batch_size=2)
-
-    print([x[0] for x in model.named_parameters()])
+    n_classes = len(ds.peak_types) + 1 if label_types else 2
+    model = UNetPeakClassifier(output_classes=n_classes)
 
     # Ensure it gives the correct batch sizes
     batch_x, batch_y = next(iter(loader))
     pred_y = model(batch_x)
-    assert pred_y.shape == (batch_x.shape[0], 2, batch_x.shape[1])
+    assert pred_y.shape == (batch_x.shape[0], n_classes, batch_x.shape[1])
 
     # Make sure we can compute losses
     loss = torch.nn.CrossEntropyLoss()
