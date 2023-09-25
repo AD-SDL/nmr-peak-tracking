@@ -5,7 +5,7 @@ import logging
 import numpy as np
 from torch.utils.data import IterableDataset
 
-from nmrtrack.synthetic import PatternGenerator, PeakFunction
+from nmrtrack.synthetic import PatternGenerator, PeakFunction, MobilePeakFunction, TimeSeriesGenerator
 
 logger = logging.getLogger(__name__)
 
@@ -17,7 +17,7 @@ class BaseSyntheticNMRDataset(IterableDataset):
         normalize: Normalize the pattern such that the maximum value is 1
     """
 
-    def __init__(self, generator: PatternGenerator, normalize: bool = True):
+    def __init__(self, generator: PatternGenerator | TimeSeriesGenerator, normalize: bool = True):
         super().__init__()
         self.generator = generator
         self.peak_count = len(generator.pattern_peak_count_weights)
@@ -55,7 +55,7 @@ class PeakClassifierDataset(BaseSyntheticNMRDataset):
         normalize: Normalize the pattern such that the maximum value is 1
     """
 
-    def __init__(self, generator: PatternGenerator, label_types: bool = False, normalize: bool = True):
+    def __init__(self, generator: PatternGenerator | TimeSeriesGenerator, label_types: bool = False, normalize: bool = True):
         super().__init__(generator, normalize)
         self.label_types = label_types
 
@@ -76,14 +76,31 @@ class PeakClassifierDataset(BaseSyntheticNMRDataset):
         """Types of peaks included in the dataset"""
         return self._peak_types
 
+    def _update_peak_output(self, peak: PeakFunction, output: np.ndarray):
+        """Update the output classification map with the information about a new peak
+
+        Args:
+            peak: New peak
+            output: Output to be updated with the location of the peak
+        """
+        peak_ind = round(peak.center / self._offset_pitch)
+        while output[peak_ind] != 0:  # Edge case: overlapping peaks
+            peak_ind += 1
+        output[peak_ind] = self._peak_types.index(peak.peak_type) + 1 if self.label_types else 1
+
     def generate_labels(self, info: list[PeakFunction]):
-        output = np.zeros((self.generator.offset_count,), dtype=np.int64)
-
-        # Get the index corresponding to the center of each peak
-        for peak in info:
-            peak_ind = round(peak.center / self._offset_pitch)
-            while output[peak_ind] != 0:  # Edge case: overlapping peaks
-                peak_ind += 1
-            output[peak_ind] = self._peak_types.index(peak.peak_type) + 1 if self.label_types else 1
-
+        # Different behavior depending on whether the peak is mobile or not
+        # TODO (wardlt): I dislike having a single function with two mutually exclusive code paths. Need to think on refactoring this...
+        is_moving_peak = isinstance(info[0], MobilePeakFunction)
+        if is_moving_peak:
+            output = np.zeros((self.generator.time_count, self.generator.offset_count), dtype=np.int64)
+            # Provide the labels at each timestep
+            for i, time in enumerate(self.generator.times):
+                for peak in info:
+                    time_peak = peak.apply_movement(time)
+                    self._update_peak_output(time_peak, output[i, :])
+        else:
+            output = np.zeros((self.generator.offset_count,), dtype=np.int64)
+            for peak in info:
+                self._update_peak_output(peak, output)
         return output

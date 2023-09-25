@@ -2,7 +2,7 @@ import torch
 from torch.utils.data import DataLoader
 from pytest import fixture
 
-from nmrtrack.synthetic import PatternGenerator
+from nmrtrack.synthetic import PatternGenerator, TimeSeriesGenerator
 from nmrtrack.torch.data import PeakPositionDataset, PeakClassifierDataset
 from nmrtrack.torch.models import PeakLocationPredictor, UNetPeakClassifier
 
@@ -10,6 +10,11 @@ from nmrtrack.torch.models import PeakLocationPredictor, UNetPeakClassifier
 @fixture()
 def generator() -> PatternGenerator:
     return PatternGenerator(seed=1, offset_count=128)
+
+
+@fixture()
+def timeseries_generator() -> TimeSeriesGenerator:
+    return TimeSeriesGenerator(seed=1, offset_count=128, time_count=64)
 
 
 def test_dataset(generator):
@@ -88,3 +93,17 @@ def test_classifier(generator):
     loss = torch.nn.CrossEntropyLoss()
     output = loss(pred_y, batch_y)
     output.backward()  # Ensure we get gradients
+
+
+def test_timeseries_classifier_dataset(timeseries_generator):
+    ds = PeakClassifierDataset(timeseries_generator, label_types=True)
+
+    image, labels = next(iter(ds))
+
+    # Make sure the image is reasonable
+    assert image.shape == (64, 128)
+    assert image.max() == 1.
+
+    # Check that the labels are present
+    assert labels.shape == image.shape
+    assert (labels >= 1).any(axis=1).all()  # At least one peak per frame
