@@ -77,17 +77,19 @@ def test_cnn_to_seq(generator):
 
 
 @mark.parametrize('label_types', [True, False])
-def test_classifier(generator, label_types):
+@mark.parametrize('generator_name', ['generator', 'timeseries_generator'])
+def test_classifier(generator_name, label_types, request):
     # Create the model and loader
+    generator = request.getfixturevalue(generator_name)
     ds = PeakClassifierDataset(generator, label_types=label_types)
     loader = DataLoader(ds, batch_size=2)
     n_classes = len(ds.peak_types) + 1 if label_types else 2
-    model = UNetPeakClassifier(output_classes=n_classes)
+    model = UNetPeakClassifier(output_classes=n_classes, dimensionality=2 if 'time' in generator_name else 1)
 
     # Ensure it gives the correct batch sizes
     batch_x, batch_y = next(iter(loader))
     pred_y = model(batch_x)
-    assert pred_y.shape == (batch_x.shape[0], n_classes, batch_x.shape[1])
+    assert pred_y.shape == (batch_x.shape[0], n_classes, *batch_x.shape[1:])
 
     # Make sure we can compute losses
     loss = torch.nn.CrossEntropyLoss()

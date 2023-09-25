@@ -45,14 +45,29 @@ class UNetPeakClassifier(nn.Module):
     The network is `a UNet architecture <https://en.wikipedia.org/wiki/U-Net>`_ that uses zero padding to avoid the need for windowing.
 
     Args:
+        dimensionality: 1 for single spectra and 2 for time series
         depth: How many downsampling steps to perform
         first_features: How many features in the first layer
         downscale_kernel: Width of the kernel for downscaling
         output_classes: Number of output classes
     """
 
-    def __init__(self, depth: int = 3, first_features: int = 32, downscale_kernel: int = 3, output_classes: int = 2):
+    def __init__(self, dimensionality: int = 1, depth: int = 3, first_features: int = 32, downscale_kernel: int = 3, output_classes: int = 2):
         super().__init__()
+
+        # Determine the correct convolutions for each dimensionality
+        self.dimensionality = dimensionality
+        print(dimensionality)
+        if dimensionality == 1:
+            conv_layer = nn.Conv1d
+            up_conv_layer = nn.ConvTranspose1d
+            self.pool_layer = nn.MaxPool1d(2, stride=2)
+        elif dimensionality == 2:
+            conv_layer = nn.Conv2d
+            up_conv_layer = nn.ConvTranspose2d
+            self.pool_layer = nn.MaxPool2d(2, stride=2)
+        else:
+            raise ValueError(f'Dimensionality should be one or two. Supplied: {dimensionality}')
 
         # Build the downscaling layers
         input_features = 1
@@ -61,9 +76,9 @@ class UNetPeakClassifier(nn.Module):
         for _ in range(depth):
             # Run a convolution twice
             self.downscale_convs.append(nn.Sequential(
-                nn.Conv1d(input_features, output_features, downscale_kernel, padding='same'),
+                conv_layer(input_features, output_features, downscale_kernel, padding='same'),
                 nn.ReLU(),
-                nn.Conv1d(output_features, output_features, downscale_kernel, padding='same'),
+                conv_layer(output_features, output_features, downscale_kernel, padding='same'),
                 nn.ReLU(),
             ))
 
@@ -78,12 +93,12 @@ class UNetPeakClassifier(nn.Module):
         for _ in range(depth - 1):
             # Make the upscale convolution, which reduces the feature size
             self.upscale_steps.append(
-                nn.ConvTranspose1d(input_features, input_features // 2, 2, stride=2)
+                up_conv_layer(input_features, input_features // 2, 2, stride=2)
             )
             self.upscale_convs.append(nn.Sequential(
-                nn.Conv1d(input_features, output_features, downscale_kernel, padding='same'),
+                conv_layer(input_features, output_features, downscale_kernel, padding='same'),
                 nn.ReLU(),
-                nn.Conv1d(output_features, output_features, downscale_kernel, padding='same'),
+                conv_layer(output_features, output_features, downscale_kernel, padding='same'),
                 nn.ReLU(),
             ))
 
@@ -92,7 +107,7 @@ class UNetPeakClassifier(nn.Module):
             output_features = output_features // 2
 
         # The output convolution
-        self.output_conv = nn.Conv1d(input_features, output_classes, downscale_kernel, padding='same')
+        self.output_conv = conv_layer(input_features, output_classes, downscale_kernel, padding='same')
 
     def forward(self, inputs):
 
@@ -102,7 +117,7 @@ class UNetPeakClassifier(nn.Module):
         for convs in self.downscale_convs[:-1]:
             output_stack = convs(input_stack)
             shortcut_inputs.append(output_stack)
-            input_stack = nn.MaxPool1d(2, stride=2)(output_stack)
+            input_stack = self.pool_layer(output_stack)
 
         # Run the last downstep without the maxpool
         input_stack = self.downscale_convs[-1](input_stack)
